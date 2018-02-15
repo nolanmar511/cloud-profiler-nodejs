@@ -15,6 +15,11 @@
  */
 
 import * as delay from 'delay';
+import * as pify from 'pify';
+import * as util from 'util';
+import * as zlib from 'zlib';
+
+const gzip = pify(zlib.gzip);
 
 import {perftools} from '../../../proto/profile';
 import {serializeTimeProfile} from './profile-serializer';
@@ -34,11 +39,14 @@ export class TimeProfiler {
    *
    * @param durationMillis - time in milliseconds for which to collect profile.
    */
-  async profile(durationMillis: number): Promise<perftools.profiles.IProfile> {
-    const runName = 'stackdriver-profiler-' + Date.now() + '-' + Math.random();
+  async profile(durationMillis: number): Promise<string> {
+    const startTime = Date.now();
+    const runName = 'stackdriver-profiler-' + startTime + '-' + Math.random();
     profiler.startProfiling(runName);
     await delay(durationMillis);
-    const result = profiler.stopProfiling(runName);
-    return serializeTimeProfile(result, this.intervalMicros);
+    const b = profiler.stopProfilingProto(
+        runName, this.intervalMicros, startTime * 1000 * 1000);
+    const gzBuf = await gzip(b);
+    return gzBuf.toString('base64');
   }
 }

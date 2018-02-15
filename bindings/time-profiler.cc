@@ -16,6 +16,7 @@
 
 #include "v8-profiler.h"
 #include "nan.h"
+#include "serialize.h"
 
 using namespace v8;
 
@@ -73,6 +74,17 @@ NAN_METHOD(StopProfiling) {
   info.GetReturnValue().Set(translated_profile);
 }
 
+NAN_METHOD(StopProfilingProto) {
+  Local<String> name = info[0].As<String>();
+  int64_t samplingIntervalMicros = info[1].As<Integer>()->IntegerValue();
+  int64_t startTimeNanos = info[2].As<Integer>()->IntegerValue();
+  std::unique_ptr<v8::CpuProfile> profile(
+    info.GetIsolate()->GetCpuProfiler()->StopProfiling(name));
+  std::vector<char>b = serializeTimeProfile(std::move(profile), samplingIntervalMicros, startTimeNanos);
+  info.GetReturnValue().Set(Nan::CopyBuffer( &b[0], b.size()).ToLocalChecked());
+}
+
+
 NAN_METHOD(SetSamplingInterval) {
   int us = info[0].As<Integer>()->IntegerValue();
   info.GetIsolate()->GetCpuProfiler()->SetSamplingInterval(us);
@@ -88,6 +100,8 @@ NAN_MODULE_INIT(InitAll) {
     Nan::GetFunction(Nan::New<FunctionTemplate>(StartProfiling)).ToLocalChecked());
   Nan::Set(target, Nan::New("stopProfiling").ToLocalChecked(),
     Nan::GetFunction(Nan::New<FunctionTemplate>(StopProfiling)).ToLocalChecked());
+  Nan::Set(target, Nan::New("stopProfilingProto").ToLocalChecked(),
+    Nan::GetFunction(Nan::New<FunctionTemplate>(StopProfilingProto)).ToLocalChecked());
   Nan::Set(target, Nan::New("setSamplingInterval").ToLocalChecked(),
     Nan::GetFunction(Nan::New<FunctionTemplate>(SetSamplingInterval)).ToLocalChecked());
   Nan::Set(target, Nan::New("setIdle").ToLocalChecked(),

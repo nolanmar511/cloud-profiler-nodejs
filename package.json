@@ -32,13 +32,15 @@
     "extend": "^3.0.1",
     "gcp-metadata": "^0.6.1",
     "nan": "^2.8.0",
+    "numeral": "^2.0.6",
     "parse-duration": "^0.1.1",
     "pify": "^3.0.0",
     "pretty-ms": "^3.1.0",
     "protobufjs": "~6.8.0",
     "request": "^2.83.0",
     "retry-request": "^3.0.1",
-    "semver": "^5.5.0"
+    "semver": "^5.5.0",
+    "util": "^0.10.3"
   },
   "devDependencies": {
     "@types/delay": "^2.0.0",

@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-#include <memory>
 #include "v8-profiler.h"
 #include "nan.h"
+#include "serialize.h"
 
 using namespace v8;
 
@@ -81,6 +81,17 @@ NAN_METHOD(GetAllocationProfile) {
   info.GetReturnValue().Set(TranslateAllocationProfile(root));
 }
 
+NAN_METHOD(GetAllocationProfileProto) {
+  if (info.Length() != 1 || !info[0]->IsNumber()) {
+    return Nan::ThrowTypeError("First argument type must be Integer.");
+  }
+  int64_t startTimeNanos = info[0].As<Integer>()->IntegerValue();
+  std::unique_ptr<v8::AllocationProfile> profile(
+    info.GetIsolate()->GetHeapProfiler()->GetAllocationProfile());
+  std::vector<char>b = serializeHeapProfile(std::move(profile), 512 * 1024, startTimeNanos);
+  info.GetReturnValue().Set(Nan::CopyBuffer( &b[0], b.size()).ToLocalChecked());
+}
+
 NAN_MODULE_INIT(InitAll) {
   Nan::Set(target, Nan::New("startSamplingHeapProfiler").ToLocalChecked(),
     Nan::GetFunction(Nan::New<FunctionTemplate>(StartSamplingHeapProfiler)).ToLocalChecked());
@@ -88,6 +99,8 @@ NAN_MODULE_INIT(InitAll) {
     Nan::GetFunction(Nan::New<FunctionTemplate>(StopSamplingHeapProfiler)).ToLocalChecked());
   Nan::Set(target, Nan::New("getAllocationProfile").ToLocalChecked(),
     Nan::GetFunction(Nan::New<FunctionTemplate>(GetAllocationProfile)).ToLocalChecked());
+    Nan::Set(target, Nan::New("getAllocationProfileProto").ToLocalChecked(),
+      Nan::GetFunction(Nan::New<FunctionTemplate>(GetAllocationProfileProto)).ToLocalChecked());
 }
 
 NODE_MODULE(sampling_heap_profiler, InitAll);

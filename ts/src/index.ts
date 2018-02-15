@@ -16,6 +16,7 @@
 
 import * as delay from 'delay';
 import * as extend from 'extend';
+import * as fs from 'fs';
 import * as gcpMetadata from 'gcp-metadata';
 import * as path from 'path';
 import {normalize} from 'path';
@@ -159,15 +160,31 @@ export async function startLocal(config: Config = {}): Promise<void> {
     if (!config.disableHeap) {
       const heap = await profiler.profile(
           {name: 'HEAP-Profile' + new Date(), profileType: 'HEAP'});
+      const decodedBytes = Buffer.from(heap.profileBytes as 'string', 'base64');
+      fs.writeFile(
+          `${heap.name.replace(/(\s|:)/g, '')}.pb.gz`, decodedBytes, (err) => {
+            if (err) {
+              console.log(err);
+            }
+          });
     }
     if (!config.disableTime) {
       const wall = await profiler.profile({
         name: 'Time-Profile' + new Date(),
         profileType: 'WALL',
-        duration: '10s'
+        duration: '1s'
       });
+
+      const decodedBytes = Buffer.from(wall.profileBytes as 'string', 'base64');
+      fs.writeFile(
+          `${wall.name.replace(/(\s|:)/g, '')}.pb.gz`, decodedBytes, (err) => {
+            if (err) {
+              console.log(err);
+            }
+          });
+    } else {
+      await delay(1000);
     }
-    await delay(1000);
   }
 }
 
