@@ -70,13 +70,9 @@ const mockHeapProfiler = mock(HeapProfiler);
 when(mockHeapProfiler.profile()).thenReturn(heapProfile);
 
 nock.disableNetConnect();
-function nockOauth2(): nock.Scope {
-  return nock('https://accounts.google.com')
-      .post(
-          '/o/oauth2/token',
-          (body: {}) => {
-            return true;
-          })
+export function nockOauth2(): nock.Scope {
+  return nock(/https:\/\/(accounts\.google\.com|www\.googleapis\.com)/)
+      .post(/\/oauth2.*token/, () => true)
       .once()
       .reply(200, {
         refresh_token: 'hello',
