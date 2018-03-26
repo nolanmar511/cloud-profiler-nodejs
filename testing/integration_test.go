@@ -46,7 +46,7 @@ const startupTemplate = `
 
 # Shut down the VM in 5 minutes after this script exits
 # to stop accounting the VM for billing and cores quota.
-trap "sleep 300 && poweroff" EXIT
+trap "sleep 100 &&  echo "busybench finished profiling" && sleep 200 && poweroff" EXIT
 
 # Fail on any error
 set -eo pipefail
