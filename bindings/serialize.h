@@ -17,6 +17,7 @@
 #ifndef BINDINGS_SERIALIZE_H_
 #define BINDINGS_SERIALIZE_H_
 
+#include "proto.h"
 #include "v8-profiler.h"
 #include <deque>
 #include <map>
@@ -34,12 +35,6 @@ serializeHeapProfile(std::unique_ptr<v8::AllocationProfile> profile,
 std::vector<char> serializeTimeProfile(std::unique_ptr<v8::CpuProfile> profile,
                                        int64_t samplingIntervalMicros,
                                        int64_t startTimeNanos);
-
-class ProtoField {
-public:
-  // Writes the ProtoField in serialized protobuf format to buffer b.
-  virtual void encode(std::vector<char> &b) = 0;
-};
 
 // Corresponds to ValueType defined in third_party/proto/profile.proto.
 class ValueType : public ProtoField {
