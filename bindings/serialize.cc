@@ -169,12 +169,12 @@ void Mapping::encode(std::vector<char> &b) {
   encodeBoolOpt(b, 10, hasInlineFrames);
 }
 
-Line::Line(uint64_t functionIDX, int64_t line) {
-  this->functionIDX = functionIDX;
+Line::Line(uint64_t functionID, int64_t line) {
+  this->functionID = functionID;
   this->line = line;
 }
 void Line::encode(std::vector<char> &b) {
-  encodeUint64Opt(b, 1, functionIDX);
+  encodeUint64Opt(b, 1, functionID);
   encodeInt64Opt(b, 2, line);
 }
 
@@ -195,18 +195,18 @@ void ProfileFunction::encode(std::vector<char> &b) {
   encodeInt64Opt(b, 5, startLine);
 }
 
-ProfileLocation::ProfileLocation(uint64_t id, uint64_t mappingIDX,
+ProfileLocation::ProfileLocation(uint64_t id, uint64_t mappingID,
                                  uint64_t address, std::vector<Line> line,
                                  bool isFolded) {
   this->id = id;
-  this->mappingIDX = mappingIDX;
+  this->mappingID = mappingID;
   this->address = address;
   this->line = line;
   this->isFolded = isFolded;
 }
 void ProfileLocation::encode(std::vector<char> &b) {
   encodeUint64Opt(b, 1, id);
-  encodeInt64Opt(b, 2, mappingIDX);
+  encodeInt64Opt(b, 2, mappingID);
   encodeInt64Opt(b, 3, address);
   for (std::vector<Line>::iterator l = line.begin(); l != line.end(); ++l) {
     encodeMessage(b, 4, &*l);
@@ -214,14 +214,14 @@ void ProfileLocation::encode(std::vector<char> &b) {
   encodeBoolOpt(b, 5, isFolded);
 }
 
-Sample::Sample(std::vector<uint64_t> locationIDX, std::vector<int64_t> value,
+Sample::Sample(std::vector<uint64_t> locationID, std::vector<int64_t> value,
                std::vector<Label> label) {
-  this->locationIDX = locationIDX;
+  this->locationID = locationID;
   this->value = value;
   this->label = label;
 }
 void Sample::encode(std::vector<char> &b) {
-  encodeUint64s(b, 1, locationIDX);
+  encodeUint64s(b, 1, locationID);
   encodeInt64s(b, 2, value);
   for (std::vector<Label>::iterator l = label.begin(); l != label.end(); ++l) {
     encodeMessage(b, 3, &*l);

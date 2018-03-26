@@ -22,13 +22,14 @@
 #include <map>
 #include <memory>
 
-// serializeHeapProfile converts a v8::AllocationProfile to a buffer with
-// profile.proto format.
+// Returns a buffer with the input v8::AllocationProfile profile in 
+// the profile.proto format.
 std::vector<char>
 serializeHeapProfile(std::unique_ptr<v8::AllocationProfile> profile,
                      int64_t intervalBytes, int64_t startTimeNanos);
 
-// serializeTimeProfile converts a v8::CpuProfile to a buffer with profile.proto
+
+// Returns a buffer with the input v8::CpuProfile profile in the profile.proto
 // format.
 std::vector<char> serializeTimeProfile(std::unique_ptr<v8::CpuProfile> profile,
                                        int64_t samplingIntervalMicros,
@@ -36,37 +37,42 @@ std::vector<char> serializeTimeProfile(std::unique_ptr<v8::CpuProfile> profile,
 
 class ProtoField {
 public:
+  // Writes the ProtoField in serialized protobuf format to buffer b.
   virtual void encode(std::vector<char> &b) = 0;
 };
 
+// Corresponds to ValueType defined in third_party/proto/profile.proto.
 class ValueType : public ProtoField {
 public:
-  int64_t typeX;
-  int64_t unitX;
+  int64_t typeX; // Index into string table.
+  int64_t unitX; // Index into string table.
   ValueType(int64_t typeX = 0, int64_t unitX = 0);
   virtual void encode(std::vector<char> &b);
 };
 
+// Corresponds to Label defined in third_party/proto/profile.proto.
 class Label : public ProtoField {
 private:
-  int64_t keyX;
-  int64_t strX;
+  int64_t keyX; // Index into string table.
+  int64_t strX; // Index into string table.
   int64_t num;
-  int64_t unitX;
+  int64_t unitX; // Index into string table.
 
 public:
   Label(int64_t keyX = 0, int64_t strX = 0, int64_t num = 0, int64_t unitX = 0);
   virtual void encode(std::vector<char> &b);
 };
 
+
+// Corresponds to Mapping defined in third_party/proto/profile.proto.
 class Mapping : public ProtoField {
 private:
   uint64_t id;
   uint64_t start;
   uint64_t limit;
   uint64_t offset;
-  uint64_t fileX;
-  uint64_t buildIDX;
+  uint64_t fileX; // Index into string table.  
+  uint64_t buildIDX; // Index into string table.  
   bool hasFunctions;
   bool hasFilenames;
   bool hasLineNumbers;
@@ -79,22 +85,24 @@ public:
   virtual void encode(std::vector<char> &b);
 };
 
+// Corresponds to Line defined in third_party/proto/profile.proto.
 class Line : public ProtoField {
 private:
-  uint64_t functionIDX;
+  uint64_t functionID;
   int64_t line;
 
 public:
-  Line(uint64_t functionIDX, int64_t line);
+  Line(uint64_t functionID, int64_t line);
   virtual void encode(std::vector<char> &b);
 };
 
+// Corresponds to Function defined in third_party/proto/profile.proto.
 class ProfileFunction : public ProtoField {
 private:
   uint64_t id;
-  int64_t nameX;
-  int64_t systemNameX;
-  int64_t filenameX;
+  int64_t nameX; // Index into string table. 
+  int64_t systemNameX; // Index into string table. 
+  int64_t filenameX; // Index into string table. 
   int64_t startLine;
 
 public:
@@ -103,33 +111,37 @@ public:
   virtual void encode(std::vector<char> &b);
 };
 
+// Corresponds to Location defined in third_party/proto/profile.proto.
 class ProfileLocation : public ProtoField {
 private:
   uint64_t id;
-  uint64_t mappingIDX;
+  uint64_t mappingID;
   uint64_t address;
   std::vector<Line> line;
   bool isFolded;
 
 public:
-  ProfileLocation(uint64_t id, uint64_t mappingIDX, uint64_t address,
+  ProfileLocation(uint64_t id, uint64_t mappingID, uint64_t address,
                   std::vector<Line> line, bool isFolded);
   virtual void encode(std::vector<char> &b);
 };
 
+// Corresponds to Sample defined in third_party/proto/profile.proto.
 class Sample : public ProtoField {
 private:
-  std::vector<uint64_t> locationIDX;
+  std::vector<uint64_t> locationID;
   std::vector<int64_t> value;
   std::vector<Label> label;
 
 public:
-  Sample(std::vector<uint64_t> locationIDX, std::vector<int64_t> value,
+  Sample(std::vector<uint64_t> locationID, std::vector<int64_t> value,
          std::vector<Label> label);
   virtual void encode(std::vector<char> &b);
 };
 
 class Node;
+
+// Corresponds to Profile defined in third_party/proto/profile.proto.
 class Profile : public ProtoField {
 private:
   std::vector<ValueType> sampleType;
@@ -138,13 +150,13 @@ private:
   std::vector<Mapping> mapping;
   std::vector<ProfileFunction> function;
   std::vector<std::string> strings;
-  int64_t dropFramesX;
-  int64_t keepFramesX;
+  int64_t dropFramesX; // Index into string table. 
+  int64_t keepFramesX; // Index into string table. 
   int64_t timeNanos;
   int64_t durationNanos;
   ValueType periodType;
   int64_t period;
-  std::vector<int64_t> commentX;
+  std::vector<int64_t> commentX; // Indices into string table. 
   int64_t defaultSampleTypeX;
   std::map<std::string, int64_t> functionIdMap;
   std::map<std::string, int64_t> locationIdMap;
@@ -163,6 +175,7 @@ public:
   virtual void encode(std::vector<char> &b);
 };
 
+// 
 class Node {
 public:
   virtual std::string getName() = 0;
