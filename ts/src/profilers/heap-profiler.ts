@@ -51,8 +51,6 @@ export class HeapProfiler {
     return gzBuf.toString('base64');
   }
 
-
-
   enable() {
     profiler.startSamplingHeapProfiler(this.intervalBytes, this.stackDepth);
     this.enabled = true;
