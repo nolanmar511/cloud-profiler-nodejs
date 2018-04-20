@@ -175,3 +175,110 @@ export async function startLocal(config: Config = {}): Promise<void> {
 if (module.parent && module.parent.id === 'internal/preload') {
   start();
 }
+
+/**
+ * For debugging purposes. Collects profiles and discards the collected
+ * profiles.
+ */
+export async function startHeap(config: Config = {}): Promise<void> {
+  const normalizedConfig = await initConfig(config);
+  const profiler = new Profiler(normalizedConfig);
+
+  // Set up periodic logging.
+  const logger = new common.logger({
+    level: common.logger.LEVELS[normalizedConfig.logLevel],
+    tag: pjson.name
+  });
+  let heapProfileCount = 0;
+  let timeProfileCount = 0;
+  let durs: number[][] = [];
+  let prevLogTime = Date.now();
+  let startTime = Date.now();
+
+  setInterval(() => {
+    const curTime = Date.now();
+    const {rss, heapTotal, heapUsed} = process.memoryUsage();
+    logger.debug(
+      (Date.now() - startTime)/(1000 * 60 *60),
+      rss/(1024 * 1024),
+      heapTotal/(1024 * 1024),
+      heapUsed/(1024 * 1024),
+      heapProfileCount * 1000 / (curTime - prevLogTime),
+      timeProfileCount * 1000 / (curTime - prevLogTime),
+      meanDurMillis(durs),
+    );
+    durs = [];
+    heapProfileCount = 0;
+    timeProfileCount = 0;
+    prevLogTime = curTime;
+  }, 10000);
+
+  setInterval(async () => {
+    const start = process.hrtime();
+    const heap = await profiler.profile(
+        {name: 'HEAP-Profile' + new Date(), profileType: 'HEAP'});
+    const dur = process.hrtime(start);
+    durs.push(dur);
+    heapProfileCount++;
+  }, 20);
+}
+
+/**
+ * For debugging purposes. Collects profiles and discards the collected
+ * profiles.
+ */
+export async function startTime(config: Config = {}): Promise<void> {
+  const normalizedConfig = await initConfig(config);
+  const profiler = new Profiler(normalizedConfig);
+
+  // Set up periodic logging.
+  const logger = new common.logger({
+    level: common.logger.LEVELS[normalizedConfig.logLevel],
+    tag: pjson.name
+  });
+  let heapProfileCount = 0;
+  let timeProfileCount = 0;
+  let durs: number[][] = [];
+  let prevLogTime = Date.now();
+  let startTime = Date.now();
+
+  setInterval(() => {
+    const curTime = Date.now();
+    const {rss, heapTotal, heapUsed} = process.memoryUsage();
+    logger.debug(
+      (Date.now() - startTime)/(1000 * 60 *60),
+      rss/(1024 * 1024),
+      heapTotal/(1024 * 1024),
+      heapUsed/(1024 * 1024),
+      heapProfileCount * 1000 / (curTime - prevLogTime),
+      timeProfileCount * 1000 / (curTime - prevLogTime),
+      meanDurMillis(durs),
+    );
+    durs = [];
+    heapProfileCount = 0;
+    timeProfileCount = 0;
+    prevLogTime = curTime;
+  }, 10000);
+
+  setInterval(async () => {
+    const start = process.hrtime();
+    const wall = await profiler.profile({
+      name: 'Time-Profile' + new Date(),
+      profileType: 'WALL',
+      duration: '100ms'
+    });
+    const dur = process.hrtime(start);
+    durs.push(dur);
+    timeProfileCount++;
+  }, 20);
+}
+
+function meanDurMillis(durs: number[][]): number {
+  let totalSec = 0;
+  let totalNanos = 0;
+  for (let i = 0; i < durs.length; i++) {
+    totalSec += durs[i][0];
+    totalNanos += durs[i][1];
+  }
+  return (totalSec * 1000)/durs.length + (totalNanos/1e6)/durs.length;
+}
