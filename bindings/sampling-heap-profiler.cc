@@ -84,11 +84,9 @@ NAN_METHOD(GetAllocationProfileProto) {
   int64_t intervalBytes = info[1].As<Integer>()->IntegerValue();
   std::unique_ptr<v8::AllocationProfile> profile(
       info.GetIsolate()->GetHeapProfiler()->GetAllocationProfile());
-  std::unique_ptr<std::vector<char>> buffer =
-      serializeHeapProfile(std::move(profile), intervalBytes, startTimeNanos);
-  std::vector<char>* buf = buffer.release();
+  std::vector<char>* buf = new std::vector<char>();
   info.GetReturnValue().Set(
-      Nan::NewBuffer(&buf->at(0), buf->size(), free_buffer_callback, buf)
+      Nan::NewBuffer(&buf->front(), buf->size(), free_buffer_callback, buf)
           .ToLocalChecked());
 }
 

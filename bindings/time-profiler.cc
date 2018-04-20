@@ -74,12 +74,10 @@ NAN_METHOD(StopProfilingProto) {
   int64_t startTimeNanos = info[2].As<Integer>()->IntegerValue();
   CpuProfile* profile =
       info.GetIsolate()->GetCpuProfiler()->StopProfiling(name);
-  std::unique_ptr<std::vector<char>> buffer =
-      serializeTimeProfile(profile, samplingIntervalMicros, startTimeNanos);
   profile->Delete();
-  std::vector<char>* buf = buffer.release();
+  std::vector<char>* buf = new  std::vector<char>();
   info.GetReturnValue().Set(
-      Nan::NewBuffer(&buf->at(0), buf->size(), free_buffer_callback, buf)
+      Nan::NewBuffer(&buf->front(), buf->size(), free_buffer_callback, buf)
           .ToLocalChecked());
 }
 
