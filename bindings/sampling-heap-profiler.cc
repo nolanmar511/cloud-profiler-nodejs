@@ -86,9 +86,8 @@ NAN_METHOD(GetAllocationProfileProto) {
       info.GetIsolate()->GetHeapProfiler()->GetAllocationProfile());
   std::unique_ptr<std::vector<char>> buffer =
       serializeHeapProfile(std::move(profile), intervalBytes, startTimeNanos);
-  std::vector<char>* buf = buffer.release();
   info.GetReturnValue().Set(
-      Nan::NewBuffer(&buf->at(0), buf->size(), free_buffer_callback, buf)
+      Nan::CopyBuffer(&buffer->at(0), buffer->size())
           .ToLocalChecked());
 }
 
