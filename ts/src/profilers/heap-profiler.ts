@@ -14,24 +14,20 @@
  * limitations under the License.
  */
 
-import {Buffer} from 'buffer';
-import * as pify from 'pify';
-import * as util from 'util';
-import * as zlib from 'zlib';
+import {ProfilingBuffer, encodeProfilingBuffer} from './buffer-helper';
 
-import {perftools} from '../../../proto/profile';
-
-const gzip = pify(zlib.gzip);
 const profiler = require('bindings')('sampling_heap_profiler');
 
 export class HeapProfiler {
   private enabled = false;
+  private buffer: Buffer;
 
   /**
    * @param intervalBytes - average bytes between samples.
    * @param stackDepth - upper limit on number of frames in stack for sample.
    */
   constructor(private intervalBytes: number, private stackDepth: number) {
+    this.buffer = new Buffer(1000);
     this.enable();
   }
 
@@ -44,9 +40,10 @@ export class HeapProfiler {
       throw new Error('Heap profiler is not enabled.');
     }
     const startTimeNanos = Date.now() * 1000 * 1000;
-    const b = profiler.getAllocationProfile(startTimeNanos, this.intervalBytes);
-    const gzBuf = await gzip(b);
-    return gzBuf.toString('base64');
+    const profilingBuffer : ProfilingBuffer =
+        profiler.getAllocationProfile(startTimeNanos, this.intervalBytes, this.buffer);
+    this.buffer = profilingBuffer.data;
+    return encodeProfilingBuffer(profilingBuffer);
   }
 
   enable() {

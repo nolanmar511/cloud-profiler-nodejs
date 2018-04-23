@@ -46,20 +46,38 @@ void free_buffer_callback(char* data, void* buf) {
 }
 
 NAN_METHOD(GetAllocationProfile) {
+  /*
   if (info.Length() != 2 || !info[0]->IsNumber() || !info[1]->IsNumber()) {
     return Nan::ThrowTypeError(
         "Expected exactly two arguments of type Integer.");
   }
+  */
   int64_t startTimeNanos = info[0].As<Integer>()->IntegerValue();
   int64_t intervalBytes = info[1].As<Integer>()->IntegerValue();
+  Local<Object> bufferObj = info[2]->ToObject();
+  char* inBufferData = node::Buffer::Data(bufferObj);
+  size_t inBufferSize = node::Buffer::Length(bufferObj);
   std::unique_ptr<v8::AllocationProfile> profile(
       info.GetIsolate()->GetHeapProfiler()->GetAllocationProfile());
   std::unique_ptr<std::vector<char>> buffer =
       serializeHeapProfile(std::move(profile), intervalBytes, startTimeNanos);
-  std::vector<char>* buf = buffer.release();
-  info.GetReturnValue().Set(
-      Nan::NewBuffer(&buf->at(0), buf->size(), free_buffer_callback, buf)
-          .ToLocalChecked());
+
+  Local<Object> capacityBuffer = Nan::New<Object>();
+  capacityBuffer->Set(Nan::New<String>("dataLength").ToLocalChecked(),
+                      Nan::New<Integer>(static_cast<uint32_t>(buffer->size())));
+  if (buffer->size() < inBufferSize) {
+    for (size_t i = 0; i < buffer->size(); i++) {
+      inBufferData[i] = buffer->at(i);
+    }
+    capacityBuffer->Set(Nan::New<String>("data").ToLocalChecked(), bufferObj);
+  } else {
+    std::vector<char>* buf = buffer.release();
+    capacityBuffer->Set(Nan::New<String>("data").ToLocalChecked(),
+                        Nan::NewBuffer(&buf->front(), buf->capacity(),
+                                       free_buffer_callback, buf)
+                            .ToLocalChecked());
+  }
+  info.GetReturnValue().Set(capacityBuffer);
 }
 
 NAN_MODULE_INIT(InitAll) {
