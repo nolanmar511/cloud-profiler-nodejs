@@ -43,7 +43,7 @@ export class HeapProfiler {
     const profilingBuffer : ProfilingBuffer =
         profiler.getAllocationProfile(startTimeNanos, this.intervalBytes, this.buffer);
     this.buffer = profilingBuffer.data;
-    return encodeProfilingBuffer(profilingBuffer);
+    return ""; //encodeProfilingBuffer(profilingBuffer);
   }
 
   enable() {
