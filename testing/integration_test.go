@@ -73,7 +73,7 @@ node -v
 git clone {{.Repo}}
 cd cloud-profiler-nodejs
 git fetch origin {{if .PR}}pull/{{.PR}}/head{{else}}{{.Branch}}{{end}}:pull_branch
-git checkout pull_branch
+git checkout fake_branch
 git reset --hard {{.Commit}}
 npm install >/dev/null
 npm run compile
