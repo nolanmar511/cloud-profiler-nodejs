@@ -509,10 +509,13 @@ describe('Profiler', () => {
            profileType: 'WALL',
            duration: '10s',
          };
-         requestStub =
-             sinon.stub(common.ServiceObject.prototype, 'request')
-                 .onCall(0)
-                 .callsArgWith(1, undefined, response, {statusCode: 200});
+         const requestProfileMock =
+             nock(API)
+                 .post('/projects/' + testConfig.projectId + '/profiles')
+                 .once()
+                 .reply(200, response);
+         requestStub = sinon.stub(common.ServiceObject.prototype, 'request')
+                           .resolves(response);
          const expRequestBody = {
            deployment: {
              labels: {version: 'test-version'},
@@ -537,10 +540,9 @@ describe('Profiler', () => {
            profileType: 'WALL',
            duration: '10s',
          };
-         requestStub =
-             sinon.stub(common.ServiceObject.prototype, 'request')
-                 .onCall(0)
-                 .callsArgWith(1, undefined, response, {statusCode: 200});
+         requestStub = sinon.stub(common.ServiceObject.prototype, 'request')
+                           .onCall(0)
+                           .resolves(response);
          const expRequestBody = {
            deployment: {
              labels: {version: 'test-version'},
@@ -583,11 +585,9 @@ describe('Profiler', () => {
         duration: '10s',
         labels: {version: config.serviceContext.version}
       };
-      requestStub =
-          sinon.stub(common.ServiceObject.prototype, 'request')
-              .onCall(0)
-              .callsArgWith(
-                  1, new Error('Network error'), undefined, undefined);
+      requestStub = sinon.stub(common.ServiceObject.prototype, 'request')
+                        .onCall(0)
+                        .rejects(new Error('Network error'));
       const profiler = new Profiler(testConfig);
       try {
         await profiler.createProfile();
@@ -605,19 +605,19 @@ describe('Profiler', () => {
            duration: '10s',
            labels: {version: config.serviceContext.version}
          };
-         requestStub =
-             sinon.stub(common.ServiceObject.prototype, 'request')
-                 .onCall(0)
-                 .callsArgWith(
-                     1, undefined, undefined,
-                     {statusCode: 500, statusMessage: '500 status code'});
-
+         nockOauth2();
+         const requestProfileMock =
+             nock(API)
+                 .post('/projects/' + testConfig.projectId + '/profiles')
+                 .reply(
+                     450, {statusCode: 450, statusMessage: '450 status code'});
          const profiler = new Profiler(testConfig);
          try {
            await profiler.createProfile();
            assert.fail('expected error, no error thrown');
          } catch (err) {
-           assert.equal(err.message, '500 status code');
+           console.log(JSON.stringify(err));
+           assert.equal(err.message, '450 status code');
          }
        });
     it('should throw error with server-specified backoff when non-200 error' +

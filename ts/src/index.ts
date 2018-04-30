@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import * as common from '@google-cloud/common';
 import * as delay from 'delay';
 import * as extend from 'extend';
 import * as gcpMetadata from 'gcp-metadata';
@@ -27,7 +28,6 @@ import {AuthenticationConfig, Common, ServiceConfig} from '../third_party/types/
 import {Config, defaultConfig, ProfilerConfig} from './config';
 import {Profiler} from './profiler';
 
-const common: Common = require('@google-cloud/common');
 const pjson = require('../../package.json');
 
 /**
@@ -53,7 +53,7 @@ function hasService(config: Config):
  * Exported for testing purposes.
  */
 export async function initConfig(config: Config): Promise<ProfilerConfig> {
-  config = common.util.normalizeArguments(null, config);
+  config = common.util.normalizeArguments({config_: {}}, config);
 
   const envConfig: Config = {
     projectId: process.env.GCLOUD_PROJECT,
@@ -141,7 +141,7 @@ export async function start(config: Config = {}): Promise<void> {
 }
 
 function logError(msg: string, config: Config) {
-  const logger = new common.logger(
+  const logger = new common.Logger(
       {level: common.logger.LEVELS[config.logLevel || 2], tag: pjson.name});
   logger.error(msg);
 }
@@ -156,7 +156,7 @@ export async function startLocal(config: Config = {}): Promise<void> {
   const profiler = new Profiler(normalizedConfig);
 
   // Set up periodic logging.
-  const logger = new common.logger({
+  const logger = new common.Logger({
     level: common.logger.LEVELS[normalizedConfig.logLevel],
     tag: pjson.name
   });

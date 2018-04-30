@@ -1,34 +1,20 @@
-/**
- * Copyright 2017 Google Inc. All Rights Reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 
+import * as common from '@google-cloud/common';
 import * as http from 'http';
 import * as path from 'path';
 import * as pify from 'pify';
 import * as msToStr from 'pretty-ms';
+import * as request from 'request';
+import {Request} from 'request';
 import * as zlib from 'zlib';
 
 import {perftools} from '../../proto/profile';
-import {Common, Logger, Service, ServiceObject} from '../third_party/types/common-types';
 
 import {ProfilerConfig} from './config';
+import {isBackoffResponseError} from './profiler-error-helper';
 import {HeapProfiler} from './profilers/heap-profiler';
 import {TimeProfiler} from './profilers/time-profiler';
 
-export const common: Common = require('@google-cloud/common');
-const parseDuration: (str: string) => number = require('parse-duration');
 const pjson = require('../../package.json');
 const SCOPE = 'https://www.googleapis.com/auth/monitoring.write';
 const gzip = pify(zlib.gzip);
@@ -75,29 +61,6 @@ export interface RequestProfile {
 }
 
 /**
- * @return number indicated by backoff if the response indicates a backoff and
- * that backoff is greater than 0. Otherwise returns undefined.
- */
-function getServerResponseBackoff(response: http.ServerResponse): number|
-    undefined {
-  // tslint:disable-next-line: no-any
-  const body = (response as any).body;
-  if (body && body.error && body.error.details &&
-      Array.isArray(body.error.details)) {
-    for (const item of body.error.details) {
-      if (typeof item === 'object' && item.retryDelay &&
-          typeof item.retryDelay === 'string') {
-        const backoffMillis = parseDuration(item.retryDelay);
-        if (backoffMillis > 0) {
-          return backoffMillis;
-        }
-      }
-    }
-  }
-  return undefined;
-}
-
-/**
  * @return true if an deployment is a Deployment and false otherwise.
  */
 // tslint:disable-next-line: no-any
@@ -137,22 +100,6 @@ async function profileBytes(p: perftools.profiles.IProfile): Promise<string> {
 }
 
 /**
- * Error constructed from HTTP server response which indicates backoff.
- */
-class BackoffResponseError extends Error {
-  constructor(response: http.ServerResponse, readonly backoffMillis: number) {
-    super(response.statusMessage);
-  }
-}
-
-/**
- * @return true if error is a BackoffResponseError and false otherwise
- */
-function isBackoffResponseError(err: Error): err is BackoffResponseError {
-  return typeof (err as BackoffResponseError).backoffMillis === 'number';
-}
-
-/**
  * Class which tracks how long to wait before the next retry and can be
  * used to get this backoff.
  */
@@ -180,36 +127,12 @@ export class Retryer {
 }
 
 /**
- * @return profile iff response indicates success and the returned profile was
- * valid.
- * @throws error when the response indicated failure or the returned profile
- * was not valid.
- */
-function responseToProfileOrError(
-    err: Error, body: object, response: http.ServerResponse): RequestProfile {
-  if (response && isErrorResponseStatusCode(response.statusCode)) {
-    const delayMillis = getServerResponseBackoff(response);
-    if (delayMillis) {
-      throw new BackoffResponseError(response, delayMillis);
-    }
-    throw new Error(response.statusMessage);
-  }
-  if (err) {
-    throw err;
-  }
-  if (isRequestProfile(body)) {
-    return body;
-  }
-  throw new Error(`Profile not valid: ${JSON.stringify(body)}.`);
-}
-
-/**
  * Polls profiler server for instructions on behalf of a task and
  * collects and uploads profiles as requested
  */
 export class Profiler extends common.ServiceObject {
   private config: ProfilerConfig;
-  private logger: Logger;
+  private logger: common.Logger;
   private profileLabels: {instance?: string};
   private deployment: Deployment;
   private profileTypes: string[];
@@ -220,7 +143,8 @@ export class Profiler extends common.ServiceObject {
   heapProfiler: HeapProfiler|undefined;
 
   constructor(config: ProfilerConfig) {
-    config = common.util.normalizeArguments(null, config);
+    config =
+        common.util.normalizeArguments({config_: {}}, config) as ProfilerConfig;
     const serviceConfig = {
       baseUrl: config.baseApiUrl,
       scopes: [SCOPE],
@@ -229,7 +153,7 @@ export class Profiler extends common.ServiceObject {
     super({parent: new common.Service(serviceConfig, config), baseUrl: '/'});
     this.config = config;
 
-    this.logger = new common.logger({
+    this.logger = new common.Logger({
       level: common.logger.LEVELS[config.logLevel as number],
       tag: pjson.name
     });
@@ -354,20 +278,12 @@ export class Profiler extends common.ServiceObject {
     };
 
     this.logger.debug(`Attempting to create profile.`);
-    return new Promise<RequestProfile>((resolve, reject) => {
-      this.request(
-          options,
-          (err: Error, body: object, response: http.ServerResponse) => {
-            try {
-              const prof = responseToProfileOrError(err, body, response);
-              this.logger.debug(
-                  `Successfully created profile ${prof.profileType}.`);
-              resolve(prof);
-            } catch (err) {
-              reject(err);
-            }
-          });
-    });
+    const prof = await this.request(options);
+    if (!isRequestProfile(prof)) {
+      throw new Error(`Profile not valid: ${JSON.stringify(prof)}.`);
+    }
+    this.logger.debug(`Successfully created profile ${prof.profileType}.`);
+    return prof;
   }
 
   /**
@@ -394,8 +310,7 @@ export class Profiler extends common.ServiceObject {
     };
 
     try {
-      const [body, serverResponse] = await this.request(options);
-      const response = serverResponse as http.ServerResponse;
+      const response = await this.request(options);
       if (isErrorResponseStatusCode(response.statusCode)) {
         let message: number|string = response.statusCode;
         if (response.statusMessage) {
