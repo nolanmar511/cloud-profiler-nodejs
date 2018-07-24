@@ -18,7 +18,7 @@ import {perftools} from '../../proto/profile';
 import {serializeHeapProfile, serializeTimeProfile} from '../src/profilers/profile-serializer';
 import {TimeProfile, TimeProfileNode} from '../src/v8-types';
 
-import {anonymousFunctionHeapProfile, anonymousFunctionTimeProfile, heapProfile, timeProfile, v8AnonymousFunctionHeapProfile, v8AnonymousFunctionTimeProfile, v8HeapProfile, v8TimeProfile} from './profiles-for-tests';
+import {anonymousFunctionHeapProfile, anonymousFunctionTimeProfile, heapProfile, lineNumberTimeProfile, timeProfile, v8AnonymousFunctionHeapProfile, v8AnonymousFunctionTimeProfile, v8HeapProfile, v8LineNumberTimeProfile, v8TimeProfile} from './profiles-for-tests';
 
 const assert = require('assert');
 
@@ -35,6 +35,12 @@ describe('serializeTimeProfile', () => {
     const timeProfileOut = serializeTimeProfile(v8TimeProfile, 1000);
     assert.deepEqual(timeProfileOut, timeProfile);
   });
+  it('should produce expected profile when serializing with line numbers',
+     () => {
+       const timeProfileOut =
+           serializeTimeProfile(v8LineNumberTimeProfile, 1000, true);
+       assert.deepEqual(timeProfileOut, lineNumberTimeProfile);
+     });
   it('should produce expected profile when there is anyonmous function', () => {
     const timeProfileOut =
         serializeTimeProfile(v8AnonymousFunctionTimeProfile, 1000);

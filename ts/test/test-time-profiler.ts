@@ -20,7 +20,7 @@ import * as sinon from 'sinon';
 import {perftools} from '../../proto/profile';
 import {TimeProfiler} from '../src/profilers/time-profiler';
 
-import {timeProfile, v8TimeProfile} from './profiles-for-tests';
+import {timeProfile, v8LineNumberTimeProfile, v8TimeProfile} from './profiles-for-tests';
 
 const assert = require('assert');
 const v8TimeProfiler = require('bindings')('time_profiler');
@@ -30,7 +30,7 @@ describe('TimeProfiler', () => {
     it('should detect idle time', async () => {
       const durationMillis = 500;
       const intervalMicros = 1000;
-      const profiler = new TimeProfiler(intervalMicros);
+      const profiler = new TimeProfiler(intervalMicros, false);
       const profile = await profiler.profile(durationMillis);
       assert.ok(profile.stringTable);
       assert.notStrictEqual(profile.stringTable!.indexOf('(idle)'), -1);
@@ -57,7 +57,7 @@ describe('TimeProfiler', () => {
        async () => {
          const durationMillis = 500;
          const intervalMicros = 1000;
-         const profiler = new TimeProfiler(intervalMicros);
+         const profiler = new TimeProfiler(intervalMicros, false);
          let isProfiling = true;
          const profilePromise = profiler.profile(durationMillis).then(() => {
            isProfiling = false;
@@ -69,7 +69,7 @@ describe('TimeProfiler', () => {
     it('should return a profile equal to the expected profile', async () => {
       const durationMillis = 500;
       const intervalMicros = 1000;
-      const profiler = new TimeProfiler(intervalMicros);
+      const profiler = new TimeProfiler(intervalMicros, false);
       const profile = await profiler.profile(durationMillis);
       assert.deepEqual(timeProfile, profile);
     });

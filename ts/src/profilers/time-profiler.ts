@@ -25,7 +25,8 @@ export class TimeProfiler {
   /**
    * @param intervalMicros - average time in microseconds between samples
    */
-  constructor(private intervalMicros: number) {
+  constructor(
+      private intervalMicros: number, private profileLineNumbers: boolean) {
     profiler.setSamplingInterval(this.intervalMicros);
   }
 
@@ -43,9 +44,9 @@ export class TimeProfiler {
     // tslint:disable-next-line no-any
     (process as any)._startProfilerIdleNotifier();
     const runName = 'stackdriver-profiler-' + Date.now() + '-' + Math.random();
-    profiler.startProfiling(runName);
+    profiler.startProfiling(runName, this.profileLineNumbers);
     await delay(durationMillis);
-    const result = profiler.stopProfiling(runName);
+    const result = profiler.stopProfiling(runName, this.profileLineNumbers);
     // tslint:disable-next-line no-any
     (process as any)._stopProfilerIdleNotifier();
     const profile = serializeTimeProfile(result, this.intervalMicros);
