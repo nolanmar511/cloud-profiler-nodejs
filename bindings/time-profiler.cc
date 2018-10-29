@@ -104,9 +104,7 @@ NAN_METHOD(StartProfiling) {
 
   // Sample counts and timestamps are not used, so we do not need to record
   // samples.
-  // TODO: Switch to using NODE_10_0_MODULE_VERSION instead of 64 when that
-  // constant is defined in nan.
-   #if NODE_MODULE_VERSION > 64
+   #if NODE_MODULE_VERSION >  NODE_10_0_MODULE_VERSION
   bool includeLineInfo = info[1].As<Boolean>()->BooleanValue();
   if (includeLineInfo) {
     cpuProfiler->StartProfiling(name, CpuProfilingMode::kCallerLineNumbers, false);

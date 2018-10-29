@@ -18,8 +18,10 @@ package testing
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"runtime"
 	"strings"
@@ -27,7 +29,9 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/GoogleCloudPlatform/google-cloud-go/profiler/proftest"
+	"github.com/google/pprof/profile"
+
+	"cloud.google.com/go/profiler/proftest"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2/google"
 	compute "google.golang.org/api/compute/v1"
@@ -101,15 +105,21 @@ VERSION=$(node -e "console.log(require('./package.json').version);")
 PROFILER="$HOME/cloud-profiler-nodejs/google-cloud-profiler-$VERSION.tgz"
 
 TESTDIR="$HOME/test"
+BENCHDIR={{if .UseJS}}"busybench-js"{{else}}"busybench-ts"{{end}}
 mkdir -p "$TESTDIR"
-cp -r "testing/busybench" "$TESTDIR"
-cd "$TESTDIR/busybench"
+cp -r "testing/$BENCHDIR" "$TESTDIR"
+cd "$TESTDIR/$BENCHDIR"
 
-retry npm install --nodedir="$NODEDIR" "$PROFILER" typescript gts >/dev/null
-npm run compile
+retry npm install --nodedir="$NODEDIR" "$PROFILER" 
+{{if not .UseJS}}retry npm install typescript gts >/dev/null{{end}}
+{{if not .UseJS}}npm run compile{{end}}
+
+BENCH={{if .UseJS}}"src/busybench.js"{{else}}"build/src/busybench.js"{{end}}
 
 # Run benchmark with agent
-GCLOUD_PROFILER_LOGLEVEL=5 GAE_SERVICE={{.Service}} node --trace-warnings --require @google-cloud/profiler build/src/busybench.js 600
+# TODO(#19): remove --noturbo-inlining once line numbers are accurate when
+# inlining is enabled.
+GCLOUD_PROFILER_LOGLEVEL=5 GAE_SERVICE={{.Service}} {{if .WantTimeLineNumbers}}GCLOUD_PROFILER_CONFIG="detailed_line_config.json"{{end}} node {{if .WantTimeLineNumbers}}--noturbo-inlining{{end}} --trace-warnings --require @google-cloud/profiler $BENCH 600
 
 # Indicate to test that script has finished running
 echo "{{.FinishString}}"
@@ -121,39 +131,47 @@ echo "{{.FinishString}}"
 type profileSummary struct {
 	profileType  string
 	functionName string
+	lineNumber   int64
+	filename     string
 }
 
 type nodeGCETestCase struct {
 	proftest.InstanceConfig
-	name         string
-	nodeVersion  string
-	nvmMirror    string
-	wantProfiles []profileSummary
+	name                string
+	nodeVersion         string
+	nvmMirror           string
+	wantProfiles        []profileSummary
+	wantTimeLineNumbers bool
+	useJS               bool
 }
 
 func (tc *nodeGCETestCase) initializeStartUpScript(template *template.Template) error {
 	var buf bytes.Buffer
 	err := template.Execute(&buf,
 		struct {
-			Service      string
-			NodeVersion  string
-			NVMMirror    string
-			Repo         string
-			PR           int
-			Branch       string
-			Commit       string
-			FinishString string
-			ErrorString  string
+			Service             string
+			NodeVersion         string
+			NVMMirror           string
+			Repo                string
+			PR                  int
+			Branch              string
+			Commit              string
+			FinishString        string
+			ErrorString         string
+			WantTimeLineNumbers bool
+			UseJS               bool
 		}{
-			Service:      tc.name,
-			NodeVersion:  tc.nodeVersion,
-			NVMMirror:    tc.nvmMirror,
-			Repo:         *repo,
-			PR:           *pr,
-			Branch:       *branch,
-			Commit:       *commit,
-			FinishString: benchFinishString,
-			ErrorString:  errorString,
+			Service:             tc.name,
+			NodeVersion:         tc.nodeVersion,
+			NVMMirror:           tc.nvmMirror,
+			Repo:                *repo,
+			PR:                  *pr,
+			Branch:              *branch,
+			Commit:              *commit,
+			FinishString:        benchFinishString,
+			ErrorString:         errorString,
+			WantTimeLineNumbers: tc.wantTimeLineNumbers,
+			UseJS:               tc.useJS,
 		})
 	if err != nil {
 		return fmt.Errorf("failed to render startup script for %s: %v", tc.name, err)
@@ -210,7 +228,7 @@ func TestAgentIntegration(t *testing.T) {
 				MachineType: "n1-standard-1",
 			},
 			name:         fmt.Sprintf("profiler-test-node6-%s-gce", runID),
-			wantProfiles: []profileSummary{{"WALL", "busyLoop"}, {"HEAP", "benchmark"}},
+			wantProfiles: []profileSummary{{profileType: "WALL", functionName: "busyLoop"}, {profileType: "HEAP", functionName: "benchmark"}},
 			nodeVersion:  "6",
 		},
 		{
@@ -221,7 +239,7 @@ func TestAgentIntegration(t *testing.T) {
 				MachineType: "n1-standard-1",
 			},
 			name:         fmt.Sprintf("profiler-test-node8-%s-gce", runID),
-			wantProfiles: []profileSummary{{"WALL", "busyLoop"}, {"HEAP", "benchmark"}},
+			wantProfiles: []profileSummary{{profileType: "WALL", functionName: "busyLoop"}, {profileType: "HEAP", functionName: "benchmark"}},
 			nodeVersion:  "8",
 		},
 		{
@@ -232,7 +250,7 @@ func TestAgentIntegration(t *testing.T) {
 				MachineType: "n1-standard-1",
 			},
 			name:         fmt.Sprintf("profiler-test-node10-%s-gce", runID),
-			wantProfiles: []profileSummary{{"WALL", "busyLoop"}, {"HEAP", "benchmark"}},
+			wantProfiles: []profileSummary{{profileType: "WALL", functionName: "busyLoop"}, {profileType: "HEAP", functionName: "benchmark"}},
 			nodeVersion:  "10",
 		},
 		{
@@ -243,8 +261,22 @@ func TestAgentIntegration(t *testing.T) {
 				MachineType: "n1-standard-1",
 			},
 			name:         fmt.Sprintf("profiler-test-node11-%s-gce", runID),
-			wantProfiles: []profileSummary{{"WALL", "busyLoop"}, {"HEAP", "benchmark"}},
+			wantProfiles: []profileSummary{{profileType: "WALL", functionName: "busyLoop"}, {profileType: "HEAP", functionName: "benchmark"}},
 			nodeVersion:  "11",
+		},
+		{
+			InstanceConfig: proftest.InstanceConfig{
+				ProjectID:   projectID,
+				Zone:        zone,
+				Name:        fmt.Sprintf("profiler-test-lines-node10-%s-js", runID),
+				MachineType: "n1-standard-1",
+			},
+			name:                fmt.Sprintf("profiler-test-lines-node10-%s-js-gce", runID),
+			wantProfiles:        []profileSummary{{profileType: "WALL", functionName: "busyLoop", lineNumber: 31}, {profileType: "HEAP", functionName: "benchmark", lineNumber: 39}},
+			useJS:               true,
+			wantTimeLineNumbers: true,
+			nodeVersion:         "node", // install latest version of node
+			nvmMirror:           "https://nodejs.org/download/v8-canary",
 		},
 	}
 	if *runOnlyV8CanaryTest {
@@ -256,7 +288,7 @@ func TestAgentIntegration(t *testing.T) {
 				MachineType: "n1-standard-1",
 			},
 			name:         fmt.Sprintf("profiler-test-v8-canary-%s-gce", runID),
-			wantProfiles: []profileSummary{{"WALL", "busyLoop"}, {"HEAP", "benchmark"}},
+			wantProfiles: []profileSummary{{profileType: "WALL", functionName: "busyLoop"}, {profileType: "HEAP", functionName: "benchmark"}},
 			nodeVersion:  "node", // install latest version of node
 			nvmMirror:    "https://nodejs.org/download/v8-canary",
 		}}
@@ -290,15 +322,73 @@ func TestAgentIntegration(t *testing.T) {
 			endTime := timeNow.Format(time.RFC3339)
 			startTime := timeNow.Add(-1 * time.Hour).Format(time.RFC3339)
 			for _, wantProfile := range tc.wantProfiles {
-				pr, err := gceTr.TestRunner.QueryProfiles(tc.ProjectID, tc.name, startTime, endTime, wantProfile.profileType)
-				if err != nil {
-					t.Errorf("QueryProfiles(%s, %s, %s, %s, %s) got error: %v", tc.ProjectID, tc.name, startTime, endTime, wantProfile.profileType, err)
-					continue
-				}
-				if err := pr.HasFunction(wantProfile.functionName); err != nil {
-					t.Errorf("Function %s not found in profiles of type %s: %v", wantProfile.functionName, wantProfile.profileType, err)
+				if wantProfile.lineNumber != 0 {
+					pr, err := queryFullProfile(gceTr.TestRunner, tc.ProjectID, tc.name, startTime, endTime, wantProfile.profileType)
+					if err != nil {
+						t.Errorf("queryFullProfile(%s, %s, %s, %s, %s) got error: %v", tc.ProjectID, tc.name, startTime, endTime, wantProfile.profileType, err)
+						continue
+					}
+					var locFound bool
+				OUTER:
+					for _, loc := range pr.Location {
+						for _, line := range loc.Line {
+							if wantProfile.functionName == line.Function.Name && wantProfile.lineNumber == line.Line {
+								locFound = true
+								break OUTER
+							}
+						}
+					}
+					if !locFound {
+						t.Errorf("Location (function: %s, line: %d) not found in profiles of type %s", wantProfile.functionName, wantProfile.lineNumber, wantProfile.profileType)
+					}
+				} else {
+					pr, err := gceTr.TestRunner.QueryProfiles(tc.ProjectID, tc.name, startTime, endTime, wantProfile.profileType)
+					if err != nil {
+						t.Errorf("QueryProfiles(%s, %s, %s, %s, %s) got error: %v", tc.ProjectID, tc.name, startTime, endTime, wantProfile.profileType, err)
+						continue
+					}
+					if err := pr.HasFunction(wantProfile.functionName); err != nil {
+						t.Errorf("Function %s not found in profiles of type %s: %v", wantProfile.functionName, wantProfile.profileType, err)
+					}
 				}
 			}
 		})
 	}
+}
+
+// profileProtoResponse contains the response produced when querying profile server.
+type profileProtoResponse struct {
+	ProfileBytes []byte        `json:"profileBytes"`
+	NumProfiles  int32         `json:"numProfiles"`
+	Deployments  []interface{} `json:"deployments"`
+}
+
+// TODO: move this to "cloud.google.com/go/profiler/proftest"
+func queryFullProfile(tr proftest.TestRunner, projectID, service, startTime, endTime, profileType string) (*profile.Profile, error) {
+	queryURL := fmt.Sprintf("https://cloudprofiler.googleapis.com/v2/projects/%s/profiles:query", projectID)
+	const queryJSONFmt = `{"endTime": "%s", "profileType": "%s","startTime": "%s", "target": "%s", "want_profile_bytes": true}`
+
+	queryRequest := fmt.Sprintf(queryJSONFmt, endTime, profileType, startTime, service)
+
+	resp, err := tr.Client.Post(queryURL, "application/json", strings.NewReader(queryRequest))
+	if err != nil {
+		return &profile.Profile{}, fmt.Errorf("failed to query API: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return &profile.Profile{}, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return &profile.Profile{}, fmt.Errorf("failed to query API: status: %s, response body: %s", resp.Status, string(body))
+	}
+
+	var pr profileProtoResponse
+	if err := json.Unmarshal(body, &pr); err != nil {
+		return &profile.Profile{}, err
+	}
+
+	return profile.ParseData(pr.ProfileBytes)
 }
