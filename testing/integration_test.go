@@ -298,7 +298,7 @@ func TestAgentIntegration(t *testing.T) {
 		ClusterConfig{
 			ProjectID:       projectID,
 			Zone:            zone,
-			ClusterName:     fmt.Sprintf("nodejs-%s", runID),
+			ClusterName:     fmt.Sprintf("test-nodejs-%s", runID),
 			PodName:         fmt.Sprintf("profiler-test-nodejs-pod-%s", runID),
 			ImageSourceName: fmt.Sprintf("profiler-test-nodejs/%s/Dockerfile.zip", runID),
 			ImageName:       fmt.Sprintf("%s/profiler-test-nodejs-%s", projectID, runID),

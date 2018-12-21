@@ -22,23 +22,33 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/storage"
 	gax "github.com/googleapis/gax-go"
-	"golang.org/x/build/kubernetes"
-	k8sapi "golang.org/x/build/kubernetes/api"
-	"golang.org/x/build/kubernetes/gke"
 	"golang.org/x/oauth2"
 	cloudbuild "google.golang.org/api/cloudbuild/v1"
 	compute "google.golang.org/api/compute/v1"
 	container "google.golang.org/api/container/v1"
 	"google.golang.org/api/googleapi"
+	k8errors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+
+	appsv1 "k8s.io/api/apps/v1"
+	apiv1 "k8s.io/api/core/v1"
+
+	// needed for GCP auth.
+	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 )
 
 const (
@@ -283,7 +293,10 @@ func (tr *GKETestRunner) newClient(ctx context.Context, cfg *ClusterConfig) (*ku
 		},
 	}
 
-	kubeClient, err := kubernetes.NewClient("https://"+cluster.Endpoint, tr.Client)
+	fmt.Printf("\n\nCLUSTER endpoint: %v\n\n", cluster.Endpoint)
+	fmt.Printf("\n\nCLUSTER zone: %v\n\n", cluster.Zone)
+	fmt.Printf("\n\nCLUSTER zone: %v\n\n", cluster.Location)
+	kubeClient, err := kubernetes.NewClient("https://"+cluster.Endpoint, kubeHTTPClient)
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes HTTP client could not be created: %v", err)
 	}
@@ -493,6 +506,8 @@ func (tr *GKETestRunner) createCluster(ctx context.Context, client *http.Client,
 		}
 	}
 }
+
+/*
 func (tr *GKETestRunner) deployContainer(ctx context.Context, kubernetesClient *kubernetes.Client, podName, ImageName string) error {
 	// TODO: Pod restart policy defaults to "Always". Previous logs will disappear
 	// after restarting. Always restart causes the test not be able to see the
@@ -516,6 +531,64 @@ func (tr *GKETestRunner) deployContainer(ctx context.Context, kubernetesClient *
 	}
 	return nil
 }
+*/
+
+func (tr *GKETestRunner) deployContainer(ctx context.Context, clientset *kubernetes.Clientset, podName, ImageName string) error {
+	// TODO: Pod restart policy defaults to "Always". Previous logs will disappear
+	// after restarting. Always restart causes the test not be able to see the
+	// finish signal. Should probably set the restart policy to "OnFailure" when
+	// we get the GKE workflow working and testable.
+
+	deploymentsClient := clientset.AppsV1().Deployments(apiv1.NamespaceDefault)
+
+	var replicas int32 = 1
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: podName,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app": "demo",
+				},
+			},
+			Template: apiv1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app": "demo",
+					},
+				},
+				Spec: apiv1.PodSpec{
+					Containers: []apiv1.Container{
+						{
+							Name:  "profiler-test",
+							Image: fmt.Sprintf("gcr.io/%s:latest", ImageName),
+							Ports: []apiv1.ContainerPort{
+								{
+									Name:          "http",
+									Protocol:      apiv1.ProtocolTCP,
+									ContainerPort: 80,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Create Deployment
+	log.Printf("Creating deployment...")
+	result, err := deploymentsClient.Create(deployment)
+	log.Printf("Finished attempting to create deployment")
+	if err != nil {
+		return err
+	}
+	log.Printf("Created deployment %q.\n", result.GetObjectMeta().GetName())
+
+	return nil
+}
 
 // RunTestOnGKE creates image needed for cluster, then starts and
 // deploys to cluster, and waits for the benchmark on the cluster to finish
@@ -536,6 +609,7 @@ func (tr *GKETestRunner) RunTestOnGKE(ctx context.Context, cfg *ClusterConfig, f
 	defer cancel()
 	if err := tr.createAndPublishDockerImage(createImageCtx, cfg.ProjectID, cfg.Bucket, cfg.ImageSourceName, fmt.Sprintf("gcr.io/%s", cfg.ImageName)); err != nil {
 		errs = append(errs, fmt.Errorf("createAndPublishDockerImage(%s) got error: %v", cfg.ImageName, err))
+		return
 	}
 
 	createClusterCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
@@ -549,26 +623,89 @@ func (tr *GKETestRunner) RunTestOnGKE(ctx context.Context, cfg *ClusterConfig, f
 		}
 	}()
 
-	kubernetesClient, err := gke.NewClient(ctx, cfg.ClusterName, gke.OptZone(cfg.Zone), gke.OptProject(cfg.ProjectID))
+	// create the clientset
+	var kubeconfig *string
+	if home := os.Getenv("HOME"); home != "" {
+		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+	} else {
+		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	}
+	flag.Parse()
+
+	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("gke.NewClient() got error: %v", err))
+		errs = append(errs, fmt.Errorf("clientcmd.BuildConfigFromFlags() got error: %v", err))
+		return
+	}
+	config.Timeout = 0
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("kubernetes.NewForConfig(%v) got error: %v", config, err))
 		return
 	}
 
-	deployContainerCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	deployContainerCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
-	if err := tr.deployContainer(deployContainerCtx, kubernetesClient, cfg.PodName, cfg.ImageName); err != nil {
+	if err := tr.deployContainer(deployContainerCtx, clientset, cfg.PodName, cfg.ImageName); err != nil {
 		errs = append(errs, fmt.Errorf("deployContainer(%s, %s) got error: %v", cfg.PodName, cfg.ImageName, err))
 		return
 	}
 
-	pollLogCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
-	defer cancel()
-	if err := tr.PollPodLog(pollLogCtx, kubernetesClient, cfg.PodName, finishStr); err != nil {
-		errs = append(errs, fmt.Errorf("pollPodLog(%s) got error: %v", cfg.PodName, err))
+	for {
+		pods, err := clientset.CoreV1().Pods("").List(metav1.ListOptions{})
+		fmt.Printf("\n\n\n%v\n\n\n", pods)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("clientset.CoreV1().Pods().List() got error: %v", err))
+			return
+		}
+		fmt.Printf("There are %d pods in the cluster\n", len(pods.Items))
+		fmt.Printf("\n\n%v\n\n", pods.Items)
+
+		// Examples for error handling:
+		// - Use helper functions like e.g. errors.IsNotFound()
+		// - And/or cast to StatusError and use its properties like e.g. ErrStatus.Message
+		namespace := "default"
+		pod := "example-xxxxx"
+		_, err = clientset.CoreV1().Pods(namespace).Get(pod, metav1.GetOptions{})
+		if k8errors.IsNotFound(err) {
+			fmt.Printf("Pod %s in namespace %s not found\n", pod, namespace)
+		} else if statusError, isStatus := err.(*k8errors.StatusError); isStatus {
+			fmt.Printf("Error getting pod %s in namespace %s: %v\n",
+				pod, namespace, statusError.ErrStatus.Message)
+		} else if err != nil {
+			errs = append(errs, fmt.Errorf("clientset.CoreV1().Pods(%s).List() got error: %v", namespace, err))
+			return
+		} else {
+			fmt.Printf("Found pod %s in namespace %s\n", pod, namespace)
+		}
+
+		time.Sleep(10 * time.Second)
 	}
-	return
+
+	/*
+		kubernetesClient, err := tr.newClient(ctx, cfg)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("gke.NewClient() got error: %v", err))
+			return
+		}
+
+		deployContainerCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+		if err := tr.deployContainer(deployContainerCtx, kubernetesClient, cfg.PodName, cfg.ImageName); err != nil {
+			errs = append(errs, fmt.Errorf("deployContainer(%s, %s) got error: %v", cfg.PodName, cfg.ImageName, err))
+			return
+		}
+
+		pollLogCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+		defer cancel()
+		if err := tr.PollPodLog(pollLogCtx, kubernetesClient, cfg.PodName, finishStr); err != nil {
+			errs = append(errs, fmt.Errorf("pollPodLog(%s) got error: %v", cfg.PodName, err))
+		}
+		return
+	*/
 }
+
+/*
 
 // PollPodLog polls the log of the kubernetes client and returns when the
 // finishString appears in the log, or when the context times out.
@@ -596,6 +733,7 @@ func (tr *GKETestRunner) PollPodLog(ctx context.Context, kubernetesClient *kuber
 		}
 	}
 }
+*/
 
 // DeleteClusterAndImage deletes cluster and images used to create cluster.
 func (tr *GKETestRunner) DeleteClusterAndImage(ctx context.Context, cfg *ClusterConfig) []error {
@@ -611,6 +749,8 @@ func (tr *GKETestRunner) DeleteClusterAndImage(ctx context.Context, cfg *Cluster
 	}
 	return errs
 }
+
+/*
 
 // StartAndDeployCluster creates image needed for cluster, then starts and
 // deploys to cluster.
@@ -635,6 +775,7 @@ func (tr *GKETestRunner) StartAndDeployCluster(ctx context.Context, cfg *Cluster
 	}
 	return kubernetesClient, nil
 }
+*/
 
 // uploadImageSource uploads source code for building docker image to GCS.
 func (tr *GKETestRunner) uploadImageSource(ctx context.Context, bucket, objectName, dockerfile string) error {
