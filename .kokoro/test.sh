@@ -40,6 +40,5 @@ WINDOWS="false"
   esac
 
 if [ "$WINDOWS" -ne "true" ]; then
-  bash $KOKORO_GFILE_DIR/codecov.sh  
+  bash $KOKORO_GFILE_DIR/codecov.sh
 fi
-
