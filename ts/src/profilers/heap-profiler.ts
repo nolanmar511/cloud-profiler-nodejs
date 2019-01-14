@@ -28,8 +28,9 @@ let heapStackDepth = 0;
  * Collects a heap profile when heapProfiler is enabled. Otherwise throws
  * an error.
  */
-export function profile(ignoreSamplePath?: string, sourceMapper?: SourceMapper):
-    perftools.profiles.IProfile {
+export async function profile(
+    ignoreSamplePath?: string,
+    sourceMapper?: SourceMapper): Promise<perftools.profiles.IProfile> {
   if (!enabled) {
     throw new Error('Heap profiler is not enabled.');
   }
@@ -49,7 +50,7 @@ export function profile(ignoreSamplePath?: string, sourceMapper?: SourceMapper):
     };
     result.children.push(externalNode);
   }
-  return serializeHeapProfile(
+  return await serializeHeapProfile(
       result, startTimeNanos, heapIntervalBytes, ignoreSamplePath,
       sourceMapper);
 }

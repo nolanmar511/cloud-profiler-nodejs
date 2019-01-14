@@ -42,7 +42,7 @@ describe('HeapProfiler', () => {
     dateStub.restore();
     memoryUsageStub.restore();
   });
-  describe('profile', () => {
+  describe('profile', async () => {
     it('should return a profile equal to the expected profile when external memory is allocated',
        async () => {
          profileStub = sinon.stub(v8HeapProfiler, 'getAllocationProfile')
@@ -56,7 +56,7 @@ describe('HeapProfiler', () => {
          const intervalBytes = 1024 * 512;
          const stackDepth = 32;
          heapProfiler.start(intervalBytes, stackDepth);
-         const profile = heapProfiler.profile();
+         const profile = await heapProfiler.profile();
          assert.deepEqual(heapProfileWithExternal, profile);
        });
 
@@ -73,7 +73,7 @@ describe('HeapProfiler', () => {
          const intervalBytes = 1024 * 512;
          const stackDepth = 32;
          heapProfiler.start(intervalBytes, stackDepth);
-         const profile = heapProfiler.profile();
+         const profile = await heapProfiler.profile();
          assert.deepEqual(heapProfileIncludePath, profile);
        });
 
@@ -90,32 +90,30 @@ describe('HeapProfiler', () => {
          const intervalBytes = 1024 * 512;
          const stackDepth = 32;
          heapProfiler.start(intervalBytes, stackDepth);
-         const profile = heapProfiler.profile('@google-cloud/profiler');
+         const profile = await heapProfiler.profile('@google-cloud/profiler');
          assert.deepEqual(heapProfileExcludePath, profile);
        });
 
-    it('should throw error when not started', () => {
-      assert.throws(
-          () => {
-            heapProfiler.profile();
-          },
-          (err: Error) => {
-            return err.message === 'Heap profiler is not enabled.';
-          });
+    it('should throw error when not started', async () => {
+      try {
+        await heapProfiler.profile();
+        assert.fail('Expected an error to be thrown,');
+      } catch (err) {
+        assert.strictEqual(err.message, 'Heap profiler is not enabled.');
+      }
     });
 
-    it('should throw error when started then stopped', () => {
+    it('should throw error when started then stopped', async () => {
       const intervalBytes = 1024 * 512;
       const stackDepth = 32;
       heapProfiler.start(intervalBytes, stackDepth);
-      heapProfiler.stop();
-      assert.throws(
-          () => {
-            heapProfiler.profile();
-          },
-          (err: Error) => {
-            return err.message === 'Heap profiler is not enabled.';
-          });
+      await heapProfiler.stop();
+      try {
+        await heapProfiler.profile();
+        assert.fail('Expected an error to be thrown,');
+      } catch (err) {
+        assert.strictEqual(err.message, 'Heap profiler is not enabled.');
+      }
     });
   });
 

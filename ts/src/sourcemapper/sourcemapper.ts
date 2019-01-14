@@ -24,14 +24,17 @@ import * as path from 'path';
 import * as sourceMap from 'source-map';
 import * as util from 'util';
 
-import * as scanner from '../../third_party/cloud-debug-nodejs/src/agent/io/scanner';
+import {mapFoo} from '../../test/profiles-for-tests';
 
 const pify = require('pify');
 const pLimit = require('p-limit');
 const readFile = pify(fs.readFile);
+const readDir: (dir: string) => Promise<string[]> = pify(fs.readdir);
+const fileStat: (path: string) => Promise<fs.Stats> = pify(fs.stat);
 
 const CONCURRENCY = 10;
 const MAP_EXT = '.map';
+const mapRegexp = /.js.map$/;
 
 export interface MapInfoCompiled {
   mapFileDir: string;
@@ -60,7 +63,8 @@ export interface SourceLocation {
  * @private
  */
 async function processSourceMap(
-    infoMap: Map<string, MapInfoCompiled>, mapPath: string): Promise<void> {
+    infoMap: Map<string, MapInfoCompiled|undefined>,
+    mapPath: string): Promise<string> {
   // this handles the case when the path is undefined, null, or
   // the empty string
   if (!mapPath || !mapPath.endsWith(MAP_EXT)) {
@@ -102,12 +106,14 @@ async function processSourceMap(
   const generatedBase =
       consumer.file ? consumer.file : path.basename(mapPath, MAP_EXT);
   const generatedPath = path.resolve(dir, generatedBase);
-
   infoMap.set(generatedPath, {mapFileDir: dir, mapConsumer: consumer});
+  return generatedPath;
 }
 
 export class SourceMapper {
   infoMap: Map<string, MapInfoCompiled>;
+  searchedDirs: Set<string>;
+  workingDir: string;
 
   /**
    * @param {Array.<string>} sourceMapPaths An array of paths to .map source map
@@ -119,6 +125,8 @@ export class SourceMapper {
    */
   constructor() {
     this.infoMap = new Map();
+    this.searchedDirs = new Set();
+    this.workingDir = process.cwd();
   }
 
   /**
@@ -126,17 +134,47 @@ export class SourceMapper {
    * source file provided there isn't any ambiguity with associating the input
    * path to exactly one output transpiled file.
    *
-   * @param inputPath The (possibly relative) path to the original source file.
+   * @param inputPath The normalized path to the original source file.
    * @return The `MapInfoCompiled` object that describes the transpiled file
    *  associated with the specified input path.  `null` is returned if either
    *  zero files are associated with the input path or if more than one file
    *  could possibly be associated with the given input path.
    */
-  private getMappingInfo(inputPath: string): MapInfoCompiled|null {
-    if (this.infoMap.has(path.normalize(inputPath))) {
+  private async getMappingInfo(inputPath: string):
+      Promise<MapInfoCompiled|null> {
+    const util = require('util');
+    if (await this.hasMappingInfo(inputPath)) {
       return this.infoMap.get(inputPath) as MapInfoCompiled;
     }
     return null;
+  }
+
+  /**
+   * @param dir Directory to search for source maps within.
+   * @param sourceFilePath Source file which one wants to find a sourceMap for.
+   */
+  private async searchDirectory(dir: string, sourceFile: string):
+      Promise<boolean> {
+    if (this.searchedDirs.has(dir)) {
+      return false;
+    }
+    const isDirectory = await isDir(dir)
+    this.searchedDirs.add(dir)
+    if (!isDirectory) {
+      return false;
+    }
+    const files = await readDir(dir);
+    let foundSourceMapFile = false;
+    for (const f of files) {
+      const file = path.join(dir, f);
+      if (mapRegexp.test(file)) {
+        const foundSourceFile = await processSourceMap(this.infoMap, file);
+        if (foundSourceFile === sourceFile) {
+          foundSourceMapFile = true;
+        }
+      }
+    }
+    return foundSourceMapFile;
   }
 
   /**
@@ -148,12 +186,27 @@ export class SourceMapper {
    * process but its corresponding .map file was not given to the constructor
    * of this mapper.
    *
-   * @param {string} inputPath The path to an input file that could
-   *  possibly be the input to a transpilation process.  The path should be
-   *  relative to the process's current working directory.
+   * @param {string} inputPath The normalized path to a source file that could
+   *  possibly have been the input to a transpilation process.
    */
-  hasMappingInfo(inputPath: string): boolean {
-    return this.getMappingInfo(inputPath) !== null;
+  private async hasMappingInfo(inputPath: string): Promise<boolean> {
+    let dir = path.dirname(inputPath);
+    if (this.searchedDirs.has(dir)) {
+      return this.infoMap.has(inputPath) !== null;
+    }
+
+    while (isInDir(this.workingDir, dir)) {
+      if (await this.searchDirectory(dir, inputPath)) {
+        break;
+      }
+      const parent = path.dirname(dir);
+      //
+      if (parent === dir) {
+        break;
+      }
+      dir = parent;
+    }
+    return this.infoMap.has(inputPath) !== null;
   }
 
   /**
@@ -175,10 +228,10 @@ export class SourceMapper {
    *   If the given input file does not have mapping information associated
    *   with it then the input location is returned.
    */
-  mappingInfo(location: GeneratedLocation): SourceLocation {
+  async mappingInfo(location: GeneratedLocation): Promise<SourceLocation> {
     const inputPath = path.normalize(location.file);
-    const entry = this.getMappingInfo(inputPath);
-    if (entry === null) {
+    const entry = await this.getMappingInfo(inputPath);
+    if (!entry) {
       return location;
     }
 
@@ -201,22 +254,40 @@ export class SourceMapper {
   }
 }
 
-export async function create(searchDirs: string[]): Promise<SourceMapper> {
-  const mapFiles: string[] = [];
-  for (const dir of searchDirs) {
-    try {
-      const mf = await getMapFiles(dir);
-      mf.forEach((mapFile) => {
-        mapFiles.push(path.resolve(dir, mapFile));
-      });
-    } catch (e) {
-      throw new Error(`failed to get source maps from ${dir}: ${e}`);
-    }
-  }
-  return createFromMapFiles(mapFiles);
+/**
+ * @param parent
+ * @param path
+ * @return True if the path is within dir, and false otherwise.
+ */
+function isInDir(parent: string, subpath: string): boolean {
+  const relative = path.relative(parent, subpath);
+  return !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
-async function createFromMapFiles(mapFiles: string[]): Promise<SourceMapper> {
+/**
+ * @param path
+ * @return True if the path is a directory and false otherwise.
+ * @throws An error if there is a problem determining if the path is a
+ *   directory.
+ */
+async function isDir(path: string): Promise<boolean> {
+  try {
+    const stat = await fileStat(path);
+    return stat.isDirectory();
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return false;
+    }
+    throw err;
+  }
+}
+
+export function create(): SourceMapper {
+  return new SourceMapper();
+}
+
+export async function createFromMapFiles(mapFiles: string[]):
+    Promise<SourceMapper> {
   const limit = pLimit(CONCURRENCY);
   const mapper = new SourceMapper();
   const promises: Array<Promise<void>> = mapFiles.map(
@@ -228,10 +299,4 @@ async function createFromMapFiles(mapFiles: string[]): Promise<SourceMapper> {
         'An error occurred while processing the source map files' + err);
   }
   return mapper;
-}
-
-async function getMapFiles(baseDir: string): Promise<string[]> {
-  const fileStats = await scanner.scan(false, baseDir, /.js.map$/);
-  const mapFiles = fileStats.selectFiles(/.js.map$/, process.cwd());
-  return mapFiles;
 }

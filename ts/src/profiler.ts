@@ -331,8 +331,7 @@ export class Profiler extends ServiceObject {
   async start(): Promise<void> {
     if (!this.config.disableSourceMaps) {
       try {
-        this.sourceMapper =
-            await createSourceMapper(this.config.sourceMapSearchPath);
+        this.sourceMapper = await createSourceMapper();
       } catch (err) {
         this.logger.error(
             `Failed to initialize source maps and start profiler: ${err}`);
@@ -523,7 +522,7 @@ export class Profiler extends ServiceObject {
     if (this.config.disableHeap) {
       throw Error('Cannot collect heap profile, heap profiler not enabled.');
     }
-    const p = heapProfiler.profile(
+    const p = await heapProfiler.profile(
         this.config.ignoreHeapSamplesPath, this.sourceMapper);
     prof.profileBytes = await profileBytes(p);
     return prof;

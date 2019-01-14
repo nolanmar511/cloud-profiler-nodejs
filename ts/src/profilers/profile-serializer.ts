@@ -85,7 +85,7 @@ class StringTable {
  * appends these to end of an array of samples.
  * @param stringTable - string table for the existing profile.
  */
-function serialize<T extends ProfileNode>(
+async function serialize<T extends ProfileNode>(
     profile: perftools.profiles.IProfile, root: T,
     appendToSamples: AppendEntryToSamples<T>, stringTable: StringTable,
     ignoreSamplesPath?: string, sourceMapper?: SourceMapper) {
@@ -106,7 +106,7 @@ function serialize<T extends ProfileNode>(
       continue;
     }
     const stack = entry.stack;
-    const location = getLocation(node, sourceMapper);
+    const location = await getLocation(node, sourceMapper);
     stack.unshift(location.id as number);
     appendToSamples(entry, samples);
     for (const child of node.children as T[]) {
@@ -119,8 +119,8 @@ function serialize<T extends ProfileNode>(
   profile.function = functions;
   profile.stringTable = stringTable.strings;
 
-  function getLocation(node: ProfileNode, sourceMapper?: SourceMapper):
-      perftools.profiles.Location {
+  async function getLocation(node: ProfileNode, sourceMapper?: SourceMapper):
+      Promise<perftools.profiles.Location> {
     let profLoc: SourceLocation = {
       file: node.scriptName || '',
       line: node.lineNumber,
@@ -130,7 +130,7 @@ function serialize<T extends ProfileNode>(
 
     if (profLoc.line) {
       if (sourceMapper && isGeneratedLocation(profLoc)) {
-        profLoc = sourceMapper.mappingInfo(profLoc);
+        profLoc = await sourceMapper.mappingInfo(profLoc);
       }
     }
     const keyStr =
@@ -232,9 +232,9 @@ function createAllocationValueType(table: StringTable):
  * @param prof - profile to be converted.
  * @param intervalMicros - average time (microseconds) between samples.
  */
-export function serializeTimeProfile(
+export async function serializeTimeProfile(
     prof: TimeProfile, intervalMicros: number,
-    sourceMapper?: SourceMapper): perftools.profiles.IProfile {
+    sourceMapper?: SourceMapper): Promise<perftools.profiles.IProfile> {
   const appendTimeEntryToSamples: AppendEntryToSamples<TimeProfileNode> =
       (entry: Entry<TimeProfileNode>, samples: perftools.profiles.Sample[]) => {
         if (entry.node.hitCount > 0) {
@@ -259,7 +259,7 @@ export function serializeTimeProfile(
     period: intervalMicros,
   };
 
-  serialize(
+  await serialize(
       profile, prof.topDownRoot, appendTimeEntryToSamples, stringTable,
       undefined, sourceMapper);
 
@@ -276,10 +276,10 @@ export function serializeTimeProfile(
  * nanoseconds.
  * @param intervalBytes - bytes allocated between samples.
  */
-export function serializeHeapProfile(
+export async function serializeHeapProfile(
     prof: AllocationProfileNode, startTimeNanos: number, intervalBytes: number,
     ignoreSamplesPath?: string,
-    sourceMapper?: SourceMapper): perftools.profiles.IProfile {
+    sourceMapper?: SourceMapper): Promise<perftools.profiles.IProfile> {
   const appendHeapEntryToSamples: AppendEntryToSamples<AllocationProfileNode> =
       (entry: Entry<AllocationProfileNode>,
        samples: perftools.profiles.Sample[]) => {
@@ -306,7 +306,7 @@ export function serializeHeapProfile(
     period: intervalBytes,
   };
 
-  serialize(
+  await serialize(
       profile, prof, appendHeapEntryToSamples, stringTable, ignoreSamplesPath,
       sourceMapper);
   return profile;

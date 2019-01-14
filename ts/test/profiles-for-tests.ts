@@ -621,8 +621,11 @@ export const decodedHeapProfileExcludePath = Object.freeze(
     perftools.profiles.Profile.decode(encodedHeapProfileExcludePath));
 
 
-const mapDir = tmp.dirSync();
-export const mapDirPath = mapDir.name;
+const mapDir = tmp.dirSync({
+  dir: path.join(process.cwd()),
+  unsafeCleanup: true,
+});
+const mapDirPath = mapDir.name;
 
 export const mapFoo = new SourceMapGenerator({file: 'foo.js'});
 mapFoo.addMapping({
@@ -646,8 +649,10 @@ mapBaz.addMapping({
   original: {line: 5, column: 0}
 });
 
-fs.writeFileSync(path.join(mapDirPath, 'foo.js.map'), mapFoo.toString());
-fs.writeFileSync(path.join(mapDirPath, 'baz.js.map'), mapBaz.toString());
+export const mapFooPath = path.join(mapDirPath, 'foo.js.map');
+export const mapBazPath = path.join(mapDirPath, 'baz.js.map');
+fs.writeFileSync(mapFooPath, mapFoo.toString());
+fs.writeFileSync(mapBazPath, mapBaz.toString());
 
 const heapGeneratedLeaf1 = {
   name: 'foo2',
