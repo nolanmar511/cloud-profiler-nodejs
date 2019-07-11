@@ -46,6 +46,25 @@ function hasService(
   );
 }
 
+function getServiceFromOCResourceLabels(): string | undefined {
+  const resourceLabels = process.env.OC_RESOURCE_LABELS;
+  if (resourceLabels === undefined) {
+    return undefined;
+  }
+  const labels = resourceLabels.split(',');
+  for (let i = 0; i < labels.length; i++) {
+    const label = labels[i].split('=');
+    if (label.length === 2 && label[0] === 'k8s.deployment.name') {
+      const service = label[1].trim();
+      if (service[0] === '"' && service[service.length - 1] === '"') {
+        return service.slice(1, -1);
+      }
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Sets unset values in the configuration to the value retrieved from
  * environment variables or specified in defaultConfig.
@@ -55,7 +74,10 @@ function initConfigLocal(config: Config): ProfilerConfig {
   const envConfig: Config = {
     projectId: process.env.GCLOUD_PROJECT,
     serviceContext: {
-      service: process.env.GAE_SERVICE || process.env.K_SERVICE,
+      service:
+        process.env.GAE_SERVICE ||
+        process.env.K_SERVICE ||
+        getServiceFromOCResourceLabels(),
       version: process.env.GAE_VERSION || process.env.K_REVISION,
     },
   };

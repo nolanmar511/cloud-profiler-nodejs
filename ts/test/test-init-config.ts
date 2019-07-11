@@ -493,6 +493,46 @@ describe('createProfiler', () => {
     const expConfig = Object.assign({}, config, defaultConfig, expConfigParams);
     assert.deepStrictEqual(profiler.config, expConfig);
   });
+
+  it('should get service from OC_RESOURCE_LABELS with multiple values when not specified in config or other environment variables', async () => {
+    metadataStub = sinon.stub(gcpMetadata, 'instance');
+    metadataStub.throwsException('cannot access metadata');
+    process.env.OC_RESOURCE_LABELS =
+      'container.name="c1",k8s.pod.name="pod-xyz-123",k8s.deployment.name="oc_version",k8s.namespace.name="default"';
+    const expConfigParams = {
+      serviceContext: {
+        service: 'oc_version',
+      },
+      disableHeap: false,
+      disableTime: false,
+      logLevel: 2,
+    };
+
+    const config = disableSourceMapParams;
+    const profiler: Profiler = await createProfiler(config);
+    const expConfig = Object.assign({}, config, defaultConfig, expConfigParams);
+    assert.deepStrictEqual(profiler.config, expConfig);
+  });
+
+  it('should get service from OC_RESOURCE_LABELS with single value when not specified in config or other environment variables', async () => {
+    metadataStub = sinon.stub(gcpMetadata, 'instance');
+    metadataStub.throwsException('cannot access metadata');
+    process.env.OC_RESOURCE_LABELS = 'k8s.deployment.name="oc_version"';
+    const expConfigParams = {
+      serviceContext: {
+        service: 'oc_version',
+      },
+      disableHeap: false,
+      disableTime: false,
+      logLevel: 2,
+    };
+
+    const config = disableSourceMapParams;
+    const profiler: Profiler = await createProfiler(config);
+    const expConfig = Object.assign({}, config, defaultConfig, expConfigParams);
+    assert.deepStrictEqual(profiler.config, expConfig);
+  });
+
   it('should start heap profiler when disableHeap is not set', async () => {
     const config = Object.assign(
       {
