@@ -1,0 +1,6 @@
+ignore:
+    .kokoro
+    test
+    system-test
+    samples
+    protos
