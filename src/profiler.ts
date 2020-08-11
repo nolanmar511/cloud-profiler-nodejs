@@ -479,6 +479,7 @@ export class Profiler extends ServiceObject {
    */
   async profileAndUpload(prof: RequestProfile): Promise<void> {
     try {
+      this.logger.debug(`Starting collection of profile ${prof.profileType}.`);
       prof = await this.profile(prof);
       this.logger.debug(`Successfully collected profile ${prof.profileType}.`);
       prof.labels = this.profileLabels;
@@ -521,6 +522,9 @@ export class Profiler extends ServiceObject {
   async profile(prof: RequestProfile): Promise<RequestProfile> {
     switch (prof.profileType) {
       case ProfileTypes.Wall:
+        this.logger.debug(
+          `Collecting profile ${prof.profileType}.`
+        );
         return this.writeTimeProfile(prof);
       case ProfileTypes.Heap:
         return this.writeHeapProfile(prof);
